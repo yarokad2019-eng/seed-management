@@ -638,6 +638,28 @@
         body.crop-other { background: #f7f7f7; }
         body { transition: background-color .25s ease; }
 
+    
+        /* Floating backup buttons (always visible) */
+        .floating-backup {
+            position: fixed;
+            bottom: 16px;
+            left: 16px;
+            z-index: 99999;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+            padding: 10px;
+            background: rgba(255,255,255,0.92);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: var(--shadow-md);
+            backdrop-filter: blur(6px);
+        }
+        @media (max-width: 520px) {
+            .floating-backup { left: 8px; right: 8px; bottom: 8px; justify-content: center; }
+        }
+
     </style>
 </head>
 <body>
@@ -660,6 +682,14 @@
                             <img id="userPhoto" src="" alt="" style="width: 40px; height: 40px; border-radius: 50%; border: 2px solid white;">
                             <div>
                                 <div id="userName" style="font-weight: 600; font-size: 1rem;"></div>
+
+                <div id="backupContainer" style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+                    <button class="btn btn-info btn-small" onclick="exportAllToJSON()">💾 גיבוי נתונים</button>
+                    <label class="btn btn-secondary btn-small" style="cursor:pointer; margin:0;">
+                        📂 טעינת גיבוי
+                        <input type="file" id="importAllJsonFile" accept=".json,application/json" style="display:none;" onchange="importAllFromJSON(event)">
+                    </label>
+                </div>
                                 <div style="font-size: 0.85rem; opacity: 0.9;">
                                     <span id="syncStatus">🔄 מסנכרן...</span>
                                 </div>
@@ -1237,7 +1267,86 @@
             try { localStorage.setItem('currentSeason', currentSeason || ''); } catch(e){}
             try { localStorage.setItem('currentCropType', currentCropType || 'all'); } catch(e){}
         }
-function loadDataFromFirebase() {
+
+
+        // ==================== LOCAL BACKUP (JSON) ====================
+        // Why: localStorage is per-website. If you open this file from Google Drive / GitHub Pages,
+        // you'll see "empty" data because it's a different origin. Use these buttons to move data.
+        function exportAllToJSON() {
+            try {
+                const payload = {
+                    version: 1,
+                    exportedAt: new Date().toISOString(),
+                    seasons: seasons || [],
+                    journalEntries: journalEntries || [],
+                    germinationTests: germinationTests || [],
+                    cropPlans: cropPlans || [],
+                    cropTypes: (typeof cropTypes !== 'undefined') ? (cropTypes || []) : [],
+                    currentSeason: currentSeason || null,
+                    currentCropType: currentCropType || 'all'
+                };
+
+                const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `seed-management-backup_${new Date().toISOString().slice(0,10)}.json`;
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => {
+                    URL.revokeObjectURL(a.href);
+                    a.remove();
+                }, 1000);
+            } catch (err) {
+                console.error('Backup export error:', err);
+                alert('לא הצלחתי לייצא גיבוי. פתח Console ותשלח לי צילום.');
+            }
+        }
+
+        function importAllFromJSON(event) {
+            try {
+                const file = event && event.target && event.target.files && event.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = () => {
+                    try {
+                        const data = JSON.parse(String(reader.result || '{}'));
+
+                        seasons = Array.isArray(data.seasons) ? data.seasons : [];
+                        journalEntries = Array.isArray(data.journalEntries) ? data.journalEntries : [];
+                        germinationTests = Array.isArray(data.germinationTests) ? data.germinationTests : [];
+                        cropPlans = Array.isArray(data.cropPlans) ? data.cropPlans : [];
+                        if (Array.isArray(data.cropTypes) && typeof cropTypes !== 'undefined') {
+                            cropTypes = data.cropTypes;
+                            try { localStorage.setItem('cropTypes', JSON.stringify(cropTypes)); } catch(e){}
+                        }
+
+                        currentSeason = data.currentSeason || (seasons[0] ? seasons[0].id : null);
+                        currentCropType = data.currentCropType || 'all';
+
+                        saveAllData();
+
+                        // Refresh UI safely
+                        try { renderCropTypeTabs(); } catch(e){}
+                        try { applyCropBackground(); } catch(e){}
+                        try { loadSeasons(); } catch(e){}
+                        try { refreshAllTables(); } catch(e){}
+                        alert('✅ הגיבוי נטען בהצלחה!');
+                    } catch (err) {
+                        console.error('Backup import parse error:', err);
+                        alert('הקובץ לא נראה כמו גיבוי תקין. אם תרצה – תעלה אותו לפה ואבדוק.');
+                    } finally {
+                        event.target.value = '';
+                    }
+                };
+                reader.readAsText(file, 'utf-8');
+            } catch (err) {
+                console.error('Backup import error:', err);
+                alert('לא הצלחתי לייבא גיבוי. פתח Console ותשלח לי צילום.');
+            }
+        }
+
+        function loadDataFromFirebase() {
             if (!useFirebase || !currentUser) {
                 return loadDataFromLocalStorage();
             }
@@ -3151,5 +3260,15 @@ alert('הקובץ ריק או לא מכיל נתונים');
         });
 
 </script>
+
+    <!-- Floating Backup Controls (always visible) -->
+    <div class="floating-backup" title="גיבוי/טעינה - כדי להעביר נתונים בין מחשבים/אתרים">
+        <button class="btn btn-info btn-small" onclick="exportAllToJSON()">💾 גיבוי נתונים</button>
+        <label class="btn btn-secondary btn-small" style="cursor:pointer; margin:0;">
+            📂 טעינת גיבוי
+            <input type="file" id="importAllJsonFile_floating" accept=".json,application/json" style="display:none;" onchange="importAllFromJSON(event)">
+        </label>
+    </div>
+
 </body>
 </html>
